@@ -1,5 +1,5 @@
 // Caches the app shell so it opens offline. Exchange rates are cached by the app itself.
-const CACHE = 'cc-shell-v2';
+const CACHE = 'cc-shell-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'currencies.js', 'rates.js', 'expr.js', 'ui.js', 'chart.js', 'history.js', 'gestures.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
