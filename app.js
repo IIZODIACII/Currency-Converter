@@ -2,7 +2,7 @@ import {
   CURRENCY_CODES, POPULAR, currencyName, currencyFlag, currencyDecimals, guessHomeCurrency,
 } from './currencies.js';
 import { loadCachedRates, fetchRates, isStale, convert } from './rates.js';
-import { evaluate, isExpression } from './expr.js';
+import { evaluate, isExpression, groupDigits } from './expr.js';
 import { $, el, toast, copyText, icons } from './ui.js';
 import { openRateSheet } from './chart.js';
 import { attachSwipe, attachDrag } from './gestures.js';
@@ -206,6 +206,36 @@ function renderStatus() {
 
 let justFocused = false;
 
+/**
+ * Re-formats the field with thousands separators as the user types, keeping the caret
+ * on the same digit. Commas are added automatically, so a typed "," is taken as the
+ * decimal point (many phone keyboards show "," as their decimal key).
+ */
+function formatWhileTyping(input, e) {
+  let v = input.value;
+  let caret = input.selectionStart ?? v.length;
+  const prev = input.dataset.prev ?? '';
+  const strip = (t) => t.replace(/,/g, '');
+
+  if (e.inputType === 'insertText' && e.data === ',') {
+    const numberSoFar = /[\d,.]*$/.exec(v.slice(0, caret - 1))[0];
+    v = v.slice(0, caret - 1) + (numberSoFar.includes('.') ? '' : '.') + v.slice(caret);
+    if (numberSoFar.includes('.')) caret -= 1;
+  } else if (strip(v) === strip(prev) && v !== prev) {
+    // Only a separator was deleted: delete the digit next to it instead.
+    if (e.inputType === 'deleteContentBackward' && caret > 0) { v = v.slice(0, caret - 1) + v.slice(caret); caret -= 1; }
+    else if (e.inputType === 'deleteContentForward') v = v.slice(0, caret) + v.slice(caret + 1);
+  }
+
+  const keep = strip(v.slice(0, caret)).length; // characters (excluding commas) before the caret
+  const formatted = groupDigits(v);
+  let pos = 0;
+  for (let seen = 0; pos < formatted.length && seen < keep; pos++) if (formatted[pos] !== ',') seen++;
+  input.value = formatted;
+  input.dataset.prev = formatted;
+  if (document.activeElement === input) input.setSelectionRange(pos, pos);
+}
+
 function renderMain() {
   if (currentView !== 'main') return;
   if (!selectedCodes().includes(session.active)) {
@@ -241,12 +271,14 @@ function renderMain() {
             saveSession();
             updateRows();
           }
+          input.dataset.prev = input.value;
           input.select();
           justFocused = true;
         });
         // Keep the select-all from focus: the mouseup that follows a click would otherwise clear it.
         input.addEventListener('mouseup', (e) => { if (justFocused) e.preventDefault(); justFocused = false; });
-        input.addEventListener('input', () => {
+        input.addEventListener('input', (e) => {
+          formatWhileTyping(input, e);
           session.active = code;
           session.text = input.value;
           saveSession();
@@ -350,7 +382,8 @@ function updateRows() {
     $('.row', row).classList.toggle('active', isActive);
 
     if (isActive) {
-      if (input.value !== session.text) input.value = session.text;
+      const shown = groupDigits(session.text);
+      if (input.value !== shown) input.value = shown;
       const expr = isExpression(session.text) && amount != null ? `= ${formatAmount(amount, code)} · ` : '';
       rateEl.textContent = `${expr}Converting from ${code}`;
       input.classList.toggle('invalid', session.text.trim() !== '' && amount == null);

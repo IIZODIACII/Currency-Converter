@@ -62,3 +62,9 @@ export function evaluate(text) {
 export function isExpression(text) {
   return /\d\s*[-+*/×÷xX]\s*[\d(]/.test(text.trim());
 }
+
+/** Adds thousands separators to every number in the text: "20000+1500.25" → "20,000+1,500.25". */
+export function groupDigits(text) {
+  return text.replace(/(\d[\d,]*)(\.\d*)?/g, (_, int, dec = '') =>
+    int.replace(/,/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') + dec);
+}
