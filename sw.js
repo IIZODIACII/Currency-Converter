@@ -1,6 +1,6 @@
 // Caches the app shell so it opens offline. Exchange rates are cached by the app itself.
-const CACHE = 'cc-shell-v1';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'currencies.js', 'rates.js', 'expr.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'cc-shell-v2';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'currencies.js', 'rates.js', 'expr.js', 'ui.js', 'chart.js', 'history.js', 'gestures.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

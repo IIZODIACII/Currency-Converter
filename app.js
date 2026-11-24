@@ -3,22 +3,12 @@ import {
 } from './currencies.js';
 import { loadCachedRates, fetchRates, isStale, convert } from './rates.js';
 import { evaluate, isExpression } from './expr.js';
+import { $, el, toast, copyText, icons } from './ui.js';
+import { openRateSheet } from './chart.js';
+import { attachSwipe, attachDrag } from './gestures.js';
 
 const SETTINGS_KEY = 'cc.settings';
 const SESSION_KEY = 'cc.session';
-
-const $ = (sel, root = document) => root.querySelector(sel);
-const el = (tag, attrs = {}, ...children) => {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') node.className = v;
-    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-    else if (v === true) node.setAttribute(k, '');
-    else if (v !== false && v != null) node.setAttribute(k, v);
-  }
-  node.append(...children.flat().filter((c) => c != null));
-  return node;
-};
 
 // ---------- persisted state ----------
 function readJSON(key) {
@@ -270,32 +260,94 @@ function renderMain() {
             if (v != null) { session.text = formatAmount(v, code); saveSession(); updateRows(); }
           }
         });
-        return el('li', { class: 'row', 'data-code': code, onclick: (e) => { if (e.target === e.currentTarget) input.focus(); } },
-          el('div', { class: 'cur' },
+        const isHome = code === settings.home;
+        const card = el('div', { class: 'row', onclick: (e) => { if (e.target === e.currentTarget) input.focus(); } },
+          isHome
+            ? el('span', { class: 'grip-space' })
+            : el('button', { class: 'grip', 'aria-label': `Drag to reorder ${code}`, title: 'Drag to reorder' }, icons.grip()),
+          el('button', { class: 'cur', 'aria-label': `${code} ${currencyName(code)}: show rate chart`, onclick: () => openChart(code) },
             el('span', { class: 'flag', 'aria-hidden': 'true' }, currencyFlag(code)),
-            el('div', {},
-              el('div', { class: 'code' }, code, code === settings.home ? el('span', { class: 'badge' }, 'Home') : null),
-              el('div', { class: 'name' }, currencyName(code)))),
+            el('span', { class: 'cur-text' },
+              el('span', { class: 'code' }, code, isHome ? el('span', { class: 'badge' }, 'Home') : null, el('span', { class: 'chart-hint' }, icons.chart())),
+              el('span', { class: 'name' }, currencyName(code)))),
           el('div', { class: 'value' }, input),
-          el('div', { class: 'rate' }));
+          el('div', { class: 'meta' },
+            el('div', { class: 'rate' }),
+            el('button', { class: 'copy', 'aria-label': `Copy ${code} amount`, title: 'Copy amount', onclick: () => copyAmount(code, input.value) }, icons.copy())));
+        const li = el('li', { class: isHome ? 'row-wrap home' : 'row-wrap', 'data-code': code },
+          isHome ? null : el('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, 'Remove'),
+          card);
+        if (!isHome) {
+          attachSwipe(li, card, { onRemove: () => removeCurrency(code) });
+          attachDrag(li, $('.grip', card), { onDrop: saveOrderFromDom });
+        }
+        return li;
       })),
-    el('p', { class: 'hint muted' }, 'Tip: type in any currency. Simple math like 120*3 or 50+12.5 works too.'),
+    el('p', { class: 'hint muted' }, 'Type in any currency (math like 120*3 works). Tap a currency for its rate chart, drag ⠿ to reorder, swipe left to remove.'),
     el('p', { class: 'source muted', id: 'rate-source' }),
   );
   renderStatus();
   updateRows();
 }
 
+// ----- main-screen actions -----
+function openChart(code) {
+  const active = session.active;
+  let from = active;
+  let to = code;
+  if (code === active) { from = code; to = code === settings.home ? settings.others[0] : settings.home; }
+  if (!ratesData) { toast('Rates aren’t loaded yet.'); return; }
+  openRateSheet(from, to, {
+    getRate: (a, b) => convert(1, a, b, ratesData.rates),
+    formatRate,
+  });
+}
+
+async function copyAmount(code, shown) {
+  const amount = evaluate(shown || '');
+  if (amount == null) { toast('Nothing to copy yet'); return; }
+  const plain = formatAmount(amount, code).replace(/,/g, '');
+  toast(await copyText(plain) ? `Copied ${plain} ${code}` : 'Couldn’t copy');
+}
+
+function removeCurrency(code) {
+  if (settings.others.length <= 1) {
+    toast('Keep at least one currency to convert to');
+    renderMain();
+    return;
+  }
+  const index = settings.others.indexOf(code);
+  const prevSession = { ...session };
+  settings.others.splice(index, 1);
+  saveSettings();
+  renderMain();
+  toast(`Removed ${code}`, {
+    label: 'Undo',
+    run: () => {
+      if (!settings.others.includes(code)) settings.others.splice(index, 0, code);
+      session = prevSession;
+      saveSettings(); saveSession();
+      if (currentView === 'main') renderMain();
+    },
+  });
+}
+
+function saveOrderFromDom() {
+  const order = [...document.querySelectorAll('#rows .row-wrap')].map((li) => li.dataset.code).filter((c) => c !== settings.home);
+  settings.others = order;
+  saveSettings();
+}
+
 function updateRows() {
   const rates = ratesData?.rates;
   const active = session.active;
   const amount = evaluate(session.text || '');
-  for (const row of document.querySelectorAll('#rows .row')) {
+  for (const row of document.querySelectorAll('#rows .row-wrap')) {
     const code = row.dataset.code;
     const input = $('.amount', row);
     const rateEl = $('.rate', row);
     const isActive = code === active;
-    row.classList.toggle('active', isActive);
+    $('.row', row).classList.toggle('active', isActive);
 
     if (isActive) {
       if (input.value !== session.text) input.value = session.text;
